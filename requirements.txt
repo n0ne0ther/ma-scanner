@@ -6,4 +6,3 @@ feedparser
 yfinance
 plotly
 python-dotenv
-alpha_vantage
