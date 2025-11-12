@@ -13,22 +13,16 @@ import feedparser
 import yfinance as yf
 import plotly.graph_objects as go
 
-# === Load Env ===
+# === Load Env (LOCAL) / Secrets (CLOUD) ===
 load_dotenv()
-API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
-XAI_API_KEY = os.getenv('XAI_API_KEY')
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
+API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY') or st.secrets.get("ALPHA_VANTAGE_API_KEY", "")
+XAI_API_KEY = os.getenv('XAI_API_KEY') or st.secrets.get("XAI_API_KEY", "")
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or st.secrets.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or st.secrets.get("TELEGRAM_CHAT_ID", "")
 
 if not API_KEY:
-    st.error("Set ALPHA_VANTAGE_API_KEY in .env file")
+    st.error("Set ALPHA_VANTAGE_API_KEY in .env (local) or secrets.toml (cloud)")
     st.stop()
-if not XAI_API_KEY:
-    st.warning("Set XAI_API_KEY in .env for Grok AI analysis")
-if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-    st.warning("Set TELEGRAM_TOKEN & TELEGRAM_CHAT_ID in .env for alerts")
-
-ts = TimeSeries(key=API_KEY, output_format='pandas')
 
 # === TOKEN TRACKING (FULLY RESTORED) ===
 MONTHLY_TOKEN_LIMIT = 1000000
@@ -365,3 +359,4 @@ st.markdown(f"""
     M&A Scanner | Not financial advice
 </div>
 """, unsafe_allow_html=True)
+
