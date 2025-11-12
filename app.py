@@ -1,4 +1,4 @@
-# app.py – M&A SCANNER: GROK TOKENS + ALL FEATURES + NO SYNTAX ERRORS
+# app.py – M&A SCANNER: FULLY WORKING, CLOUD + LOCAL
 import streamlit as st
 import pandas as pd
 import requests
@@ -21,8 +21,14 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or st.secrets.get("TELEGRAM_TOKEN",
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or st.secrets.get("TELEGRAM_CHAT_ID", "")
 
 if not API_KEY:
-    st.error("Set ALPHA_VANTAGE_API_KEY in .env (local) or secrets.toml (cloud)")
+    st.error("Set ALPHA_VANTAGE_API_KEY in .env (local) or .streamlit/secrets.toml (cloud)")
     st.stop()
+if not XAI_API_KEY:
+    st.warning("Set XAI_API_KEY for Grok AI analysis")
+if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    st.warning("Set TELEGRAM_TOKEN & TELEGRAM_CHAT_ID for alerts")
+
+ts = TimeSeries(key=API_KEY, output_format='pandas')
 
 # === TOKEN TRACKING (FULLY RESTORED) ===
 MONTHLY_TOKEN_LIMIT = 1000000
@@ -33,15 +39,27 @@ if 'SESSION_TOKENS' not in st.session_state:
 if 'SCAN_HISTORY' not in st.session_state:
     st.session_state.SCAN_HISTORY = []
 
-# === TELEGRAM SEND ===
+# === TELEGRAM SEND (FIXED + DEBUG) ===
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+        return False
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML", "disable_web_page_preview": True}
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True
+    }
     try:
-        requests.post(url, data=payload, timeout=10)
-    except: pass
+        response = requests.post(url, data=payload, timeout=10)
+        if response.status_code == 200:
+            return True
+        else:
+            st.error(f"Telegram Error: {response.status_code} – {response.text}")
+            return False
+    except Exception as e:
+        st.error(f"Telegram Failed: {str(e)}")
+        return False
 
 # === Page Config & Theme ===
 st.set_page_config(page_title="M&A Scanner – @EastofElgin", layout="wide")
@@ -304,7 +322,7 @@ def get_options_strategy(ticker):
     except:
         return None
 
-# === SIDEBAR: USER INFO + SCAN BUTTON + CONTROLS ===
+# === SIDEBAR: USER INFO + CONTROLS ===
 with st.sidebar:
     st.markdown(f"""
     ## User Info
@@ -335,8 +353,11 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**TEST ALERTS**")
     if st.button("SEND TEST TELEGRAM ALERT"):
-        send_telegram("<b>TEST SUCCESS</b>")
-        st.success("Test sent!")
+        success = send_telegram("<b>TEST SUCCESS</b>\n@EastofElgin | Scanner Active")
+        if success:
+            st.success("Test message sent to Telegram!")
+        else:
+            st.error("Failed to send. Check bot token & chat ID.")
 
 # === SCAN TRIGGER ===
 scan_now = st.session_state.get('scan_triggered', False) or auto
@@ -349,9 +370,109 @@ if scan_now:
         if signals:
             st.session_state.SCAN_HISTORY.append({'time': scan_time, 'count': len(signals), 'signals': signals})
             st.success(f"**{len(signals)} SIGNALS FOUND**")
-            # ... [display logic]
+            
+            for sig in signals:
+                # === ALERTS ===
+                if sig['type'] in ['SEC 8-K', '13D/G', 'Insider Cluster']:
+                    grok_summary = ""
+                    if sig.get('filing_text'):
+                        grok_summary = analyze_with_grok(sig['filing_text'], sig['type'], sig['ticker'])
+                    msg = f"<b>{sig['ticker']}: {sig['type']}</b>\n{sig['title'][:100]}...\n<a href='{sig['link']}'>View</a>\n{grok_summary}"
+                    send_telegram(msg)
+                    st.markdown(f'<script>showNotification("{sig["ticker"]}", "{sig["type"]} Signal");</script>', unsafe_allow_html=True)
+
+                # === DISPLAY CARD ===
+                card_class = f"signal-card signal-{sig['type'].lower().replace(' ', '-')}"
+                with st.container():
+                    col1, col2, col3 = st.columns([1, 3, 1])
+                    with col1:
+                        st.markdown(f"**{sig['ticker']}**")
+                        st.markdown(f"<div class='{card_class}'><small><b>{sig['type']}</b></small></div>", unsafe_allow_html=True)
+                    with col2:
+                        if sig['type'] == 'M&A News':
+                            st.markdown(f"**{sig['title'][:80]}...**")
+                            if sig['link']: st.markdown(f"[Read more]({sig['link']})")
+                        elif sig['type'] == 'SEC 8-K':
+                            st.markdown(f"**SEC 8-K Filed**")
+                            st.markdown(f"[View Filing]({sig['link']})")
+                            if st.button(f"Analyze with Grok", key=f"grok_8k_{sig['ticker']}"):
+                                analysis = analyze_with_grok(sig['filing_text'], '8-K', sig['ticker'])
+                                st.markdown(f"<div class='grok-analysis'><strong>Grok AI:</strong><br>{analysis}</div>", unsafe_allow_html=True)
+                        elif sig['type'] == '13D/G':
+                            st.markdown(f"**{sig.get('stake', 'N/A')}% Stake**")
+                            st.markdown(f"[View 13D]({sig['link']})")
+                            if st.button(f"Analyze with Grok", key=f"grok_13d_{sig['ticker']}"):
+                                analysis = analyze_with_grok(sig['filing_text'], '13D', sig['ticker'])
+                                st.markdown(f"<div class='grok-analysis'><strong>Grok AI:</strong><br>{analysis}</div>", unsafe_allow_html=True)
+                        elif sig['type'] == 'Insider Cluster':
+                            st.markdown("**Multiple Insiders Buying**")
+                            for buy in sig['insiders']:
+                                st.markdown(f"• {buy['owner']} — {buy['value']}")
+                        if st.button(f"View Peers", key=f"peers_{sig['ticker']}"):
+                            st.session_state.selected_ticker = sig['ticker']
+                            st.rerun()
+
+                        # === OPTIONS STRATEGY ===
+                        strategy = get_options_strategy(sig['ticker'])
+                        if strategy:
+                            with st.expander(f"**{strategy['type']} Strategy**"):
+                                st.markdown(f"<div class='option-card'>", unsafe_allow_html=True)
+                                st.markdown(f"**Buy:** {strategy['buy']}<br>**Sell:** {strategy['sell']}<br>**Expiry:** {strategy['expiry']}<br>**Cost:** {strategy['debit']}<br>**Breakeven:** {strategy['breakeven']}<br>**Max Profit:** {strategy['max_profit']}<br>**Risk:** {strategy['risk']}", unsafe_allow_html=True)
+                                st.markdown(f"**Wealthsimple Steps:**<pre>{strategy['instructions']}</pre>", unsafe_allow_html=True)
+                                st.markdown("</div>", unsafe_allow_html=True)
+                    with col3:
+                        if show_charts:
+                            chart = get_stock_chart(sig['ticker'])
+                            if chart: st.plotly_chart(chart, use_container_width=True)
+
+            # === CSV Download ===
+            df = pd.DataFrame(signals)
+            st.download_button("Download This Scan", df.to_csv(index=False).encode(), f"scan_{scan_time}.csv", "text/csv")
+
         else:
-            st.info("**No signals right now.**")
+            st.info("**No high-conviction M&A signals right now.**")
+
+        # === DEBUG MODE ===
+        if debug and raw_data:
+            with st.expander("DEBUG: Raw Scraped Data", expanded=True):
+                st.subheader("News Headlines")
+                st.write(raw_data['news'][:20])
+                st.subheader("SEC Filings")
+                st.json(raw_data['sec'][:10])
+                st.subheader("Insider Buys")
+                st.json(raw_data['insiders'][:10])
+
+# === SCAN HISTORY PANEL ===
+if st.session_state.SCAN_HISTORY:
+    with st.expander(f"Scan History ({len(st.session_state.SCAN_HISTORY)} scans)", expanded=False):
+        for entry in reversed(st.session_state.SCAN_HISTORY):
+            with st.container():
+                st.markdown(f"<div class='history-item'><b>{entry['time']}</b> — {entry['count']} signals</div>", unsafe_allow_html=True)
+                for sig in entry['signals']:
+                    st.markdown(f"• **{sig['ticker']}** — {sig['type']}: {sig['title'][:60]}...")
+        # === Export Full History ===
+        all_signals = []
+        for entry in st.session_state.SCAN_HISTORY:
+            for sig in entry['signals']:
+                sig['scan_time'] = entry['time']
+                all_signals.append(sig)
+        if all_signals:
+            df_hist = pd.DataFrame(all_signals)
+            st.download_button("Export Full History", df_hist.to_csv(index=False).encode(), "full_scan_history.csv", "text/csv")
+        if st.button("Clear History"):
+            st.session_state.SCAN_HISTORY = []
+            st.rerun()
+
+# === PEER VIEW IN SIDEBAR ===
+if 'selected_ticker' in st.session_state:
+    ticker = st.session_state.selected_ticker
+    peers, sector, _ = get_peers(ticker)
+    st.session_state.peer_data = fetch_peer_data(peers)
+    display_peer_comparison(peers, sector)
+
+if auto:
+    time.sleep(300)
+    st.rerun()
 
 # === FOOTER ===
 st.markdown(f"""
@@ -359,4 +480,3 @@ st.markdown(f"""
     M&A Scanner | Not financial advice
 </div>
 """, unsafe_allow_html=True)
-
