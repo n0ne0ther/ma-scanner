@@ -12,6 +12,7 @@ import os
 import feedparser
 import yfinance as yf
 import plotly.graph_objects as go
+
 # === Load Env (LOCAL) / Secrets (CLOUD) ===
 load_dotenv()
 API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY') or st.secrets.get("ALPHA_VANTAGE_API_KEY", "")
@@ -22,7 +23,6 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID') or st.secrets.get("TELEGRAM_CHA
 if not API_KEY:
     st.error("Set ALPHA_VANTAGE_API_KEY in .env (local) or .streamlit/secrets.toml (cloud)")
     st.stop()
-
 # === TOKEN TRACKING (FULLY RESTORED) ===
 MONTHLY_TOKEN_LIMIT = 1000000
 if 'SESSION_TOKENS' not in st.session_state:
@@ -473,4 +473,5 @@ st.markdown(f"""
     M&A Scanner | Not financial advice
 </div>
 """, unsafe_allow_html=True)
+
 
