@@ -275,7 +275,7 @@ def display_peer_comparison(peers, sector):
         metrics.append({
             'Ticker': p,
             'P/E': d.get('pe_ratio', 'N/A'),
-            'Market Cap': f"${d.get('market_cap', 0):,.0f}" if isinstance(d.get('market_cap'),', 0), (int, float)) else 'N/A',
+            'Market Cap': f"${d.get('market_cap', 0):,.0f}" if isinstance(d.get('market_cap'), (int, float)) else 'N/A',
             'Avg Vol': f"{d.get('volume', 0):,}" if isinstance(d.get('volume'), (int, float)) else 'N/A'
         })
     st.sidebar.dataframe(pd.DataFrame(metrics), use_container_width=True)
